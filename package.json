@@ -1,0 +1,14 @@
+{
+  "name": "css-media-split-plugin",
+  "version": "1.0.0",
+  "description": "the package splits project bundle css files into separate file with defined media queries",
+  "main": "src/index.js",
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "postcss": "^7.0.27",
+    "safe-require": "^1.0.3",
+    "schema-utils": "^2.6.5",
+    "webpack": "^4.42.0"
+  }
+}
