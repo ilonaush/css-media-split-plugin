@@ -113,7 +113,8 @@ module.exports = class CSSMediaSplitPlugin {
               Object.keys(mediaStorage.mediaCollection).forEach(queryname => {
                 const {css} = mediaStorage.getMedia(queryname);
 
-                const assetName = asset.replace(/\.css/, "");
+                const assetNamePos = asset.indexOf(".css");
+                const assetName = asset.substring(0, assetNamePos);
                 const newFilename = queryname.replace(/\[name]/, assetName);
 
                 this.addAsset(compilation.assets, newFilename, css);
