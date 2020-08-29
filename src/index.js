@@ -1,5 +1,5 @@
 const postcss = require("postcss");
-const EntryMediaStorage = require("./MediaStorage");
+const EntryMediaStorage = require("./mediaStorage");
 const PostCSSMediaQueryPlugin = require('./plugin');
 const validateOptions = require('schema-utils');
 const safeRequire = require('safe-require');
@@ -20,28 +20,45 @@ module.exports = class CSSMediaSplitPlugin {
       mediaUnit: "px",
       exclude: [],
     };
-    this.options = Object.assign(defaultOptions, options);
-    validateOptions(schema, this.options, configuration);
+    this.options = Object.assign(defaultOptions, options || {});
+    validateOptions(schema, this.options, configuration || {});
     this.shouldIncludeOnlyChunks = options.injectInHTML === "chunks";
+    this.shouldMakeSourceUnblocking = options.shouldMakeSourceUnblocking;
   }
 
-  insertCSSInHTML (compilation, pluginArgs) {
-    let extracted = [];
-    const chunks = pluginArgs.chunks.map((c) => c.names).flat();
-    const assetsArr = this.getFilteredAssets(compilation.assets);
-    for (const assetFilename of assetsArr) {
+  insertCSSInHTML (compilation, pluginArgs, head) {
+    let formattedChunks = [];
 
-      if (!this.shouldIncludeOnlyChunks || (this.shouldIncludeOnlyChunks && chunks.find(a => assetFilename.includes(a)))) {
+    if (this.shouldIncludeOnlyChunks) {
+      formattedChunks = (((pluginArgs || {}).plugin || {}).options || {}).chunks || [];
+    }
+
+    const extracted = this.generateHTMLLinkTags(compilation, formattedChunks);
+    const initial = this.shouldMakeSourceUnblocking ? this.getSourceAssetsWithMediaAttributes(compilation, pluginArgs[head]) : pluginArgs[head];
+
+    return Object.assign({}, pluginArgs, {
+      [head]: [...initial, ...extracted],
+    });
+  }
+
+  generateHTMLLinkTags (compilation, formattedChunks) {
+    let extracted = [];
+    const assetsArr = this.getFilteredAssets(compilation.assets) || [];
+
+    for (const assetFilename of assetsArr) {
+      const shouldBeIncluded = !this.shouldIncludeOnlyChunks || formattedChunks.find(a => assetFilename.includes(a));
+
+      if (shouldBeIncluded) {
 
         const media = (compilation["media"] || {})[assetFilename];
 
-        if (media) {
+        if (media && typeof media === "string") {
           extracted.push({
             tagName: 'link',
             selfClosingTag: false,
             voidTag: true,
             attributes: {
-              href: compilation.outputOptions.publicPath + assetFilename,
+              href: (compilation.outputOptions.publicPath || "") + assetFilename,
               rel: 'stylesheet',
               media: media
             }
@@ -50,11 +67,23 @@ module.exports = class CSSMediaSplitPlugin {
       }
     }
 
+    return extracted;
+  }
 
-
-    return Object.assign({}, pluginArgs, {
-      head: [...pluginArgs.head, ...extracted],
-    });
+  getSourceAssetsWithMediaAttributes(compilation, links) {
+    const newLinks = [...links];
+    for (const link of newLinks) {
+      const attributes = link.attributes || {};
+      const media = (compilation["media"] || {})[attributes.href.slice(1)];
+      if (media) {
+        link.attributes = {
+          ...attributes,
+          media: media.value || "",
+          onload: media.onload || ""
+        }
+      }
+    }
+    return newLinks;
   }
 
   checkIfAssetExcluded (asset) {
@@ -64,6 +93,13 @@ module.exports = class CSSMediaSplitPlugin {
     }
 
     return !!exclude.find((e) => e.test(asset));
+  }
+
+  setNonBlockingMediaToSourceAsset (compilation, asset) {
+    compilation["media"] = compilation["media"] || {};
+    compilation["media"][asset] = {};
+    compilation["media"][asset].value = "none";
+    compilation["media"][asset].onload = "this.media='all'";
   }
 
   addAsset (assets, assetName, content="") {
@@ -119,6 +155,8 @@ module.exports = class CSSMediaSplitPlugin {
 
                 this.addAsset(compilation.assets, newFilename, css);
                 this.addAsset(compilation.assets, asset, result.css);
+
+                this.setNonBlockingMediaToSourceAsset(compilation, asset);
                 this.addMediaToCompilation(compilation, newFilename, queryname);
               });
 
@@ -142,8 +180,14 @@ module.exports = class CSSMediaSplitPlugin {
         const htmlWebpackPluginAlterAssetTags = compilation.hooks.htmlWebpackPluginAlterAssetTags;
         if (htmlWebpackPluginAlterAssetTags) {
           compilation.hooks["htmlWebpackPluginAlterAssetTags"].tap(PLUGIN_NAME, (pluginArgs) => {
-            return this.insertCSSInHTML(compilation, pluginArgs);
+            return this.insertCSSInHTML(compilation, pluginArgs, "head");
           })
+        } else {
+          HtmlWebpackPlugin.getHooks(compilation).alterAssetTagGroups.tapAsync(
+            PLUGIN_NAME, (data, cb) => {
+              cb(null, this.insertCSSInHTML(compilation, data, "headTags"))
+            }
+          )
         }
       })
     }

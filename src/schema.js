@@ -17,6 +17,9 @@ const schema = {
     injectInHTML: {
       type: "string",
       "enum": ["all", "chunks", "none"]
+    },
+    shouldMakeSourceUnblocking: {
+      type: "boolean"
     }
   },
   additionalProperties: false,
